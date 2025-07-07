@@ -3,10 +3,10 @@ import pickle
 from sentence_transformers import SentenceTransformer
 
 # Paths
-JSON_PATH = "../skills/dedupli_skills.json"
+JSON_PATH = "../skills/skills.json"
 PICKLE_OUTPUT_PATH = "../skills/skill_embeddings_split.pkl"
 
-print("📦 Loading cleaned skills from JSON...")
+print("📦 Loading skills from JSON...")
 with open(JSON_PATH, "r", encoding="utf-8") as f:
     data = json.load(f)
 
