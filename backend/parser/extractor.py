@@ -2,6 +2,7 @@ import re
 import pickle
 import spacy
 from sentence_transformers import SentenceTransformer, util
+from rapidfuzz import fuzz
 
 # Load NLP and embedding models
 nlp = spacy.load("en_core_web_sm")
@@ -218,7 +219,7 @@ def extract_skills_section(text):
 # -------------------------
 # 🧠 Semantic skill matcher
 # -------------------------
-def match_skills_from_resume(text, skills, embeddings, top_k=15, threshold=0.50):
+def match_skills_from_resume(text, skills, embeddings, top_k=5, threshold=0.8):
     text_emb = model.encode(text, convert_to_tensor=True)
     sim_scores = util.cos_sim(text_emb, embeddings)[0]
     top_indices = [i for i in sim_scores.argsort(descending=True) if sim_scores[i] > threshold][:top_k]
@@ -277,9 +278,9 @@ def extract_resume_info(text):
     name = extract_name(text, email)
     summary = extract_summary(text)
 
-    skills_text = extract_skills_section(text)
-    if not skills_text.strip():
-        skills_text = text  # fallback if "Skills" section not found
+    skills_text = text  # extract_skills_section(text)
+    # if not skills_text.strip():
+    #     skills_text = text  # fallback if "Skills" section not found
 
     semantic_hard = match_skills_from_resume(skills_text, hard_skills, hard_embeddings)
     semantic_soft = match_skills_from_resume(skills_text, soft_skills, soft_embeddings)
