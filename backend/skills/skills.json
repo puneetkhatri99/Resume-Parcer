@@ -24,6 +24,10 @@
     "type": "hard skill"
   },
   {
+    "name": "Agile Methodologies",
+    "type": "hard skill"
+  },
+  {
     "name": "Data Analysis",
     "type": "hard skill"
   },
@@ -29684,7 +29688,7 @@
     "type": "hard skill"
   },
   {
-    "name": "C++14",
+    "name": "C++",
     "type": "hard skill"
   },
   {
@@ -68376,6 +68380,10 @@
     "type": "hard skill"
   },
   {
+    "name": "Python",
+    "type": "hard skill"
+  },
+  {
     "name": "IEEE 802.1D",
     "type": "hard skill"
   },
@@ -72028,7 +72036,7 @@
     "type": "hard skill"
   },
   {
-    "name": "Java 11",
+    "name": "Java",
     "type": "hard skill"
   },
   {
@@ -108452,10 +108460,6 @@
     "type": "hard skill"
   },
   {
-    "name": "Education",
-    "type": "hard skill"
-  },
-  {
     "name": "CBD Sales",
     "type": "hard skill"
   },
@@ -108613,10 +108617,6 @@
   },
   {
     "name": "HPS",
-    "type": "hard skill"
-  },
-  {
-    "name": "Led",
     "type": "hard skill"
   },
   {

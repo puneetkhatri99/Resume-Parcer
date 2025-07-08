@@ -2,8 +2,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 from parser.file_reader import read_file
-from parser.extractor import extract_resume_info
+from parser.extractor import extract_resume_info, extract_skills_section
 from tqdm import tqdm 
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -49,7 +50,7 @@ def upload_resume():
             pass
         result = extract_resume_info(text)
         print("✅ Done parsing!")
-        print("📊 Extracted:", result)
+        # print("📊 sections:", text)
         return jsonify(result), 200
     except Exception as e:
         print(f"❌ Error during extraction: {e}")

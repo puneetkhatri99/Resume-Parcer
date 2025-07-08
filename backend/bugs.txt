@@ -1,3 +1,9 @@
-fix the naming problem
+
 remove redundant skills
 understand the code
+
+
+impliment OCR (done)
+test your model
+improve pdf plumber
+add projects , experince , education
