@@ -17,6 +17,9 @@ hard_embeddings = skill_data["hard_embeddings"]
 soft_skills = skill_data["soft_skills"]
 soft_embeddings = skill_data["soft_embeddings"]
 
+def normalize_skill(name):
+    return re.sub(r'\d+(\.\d+)?', '', name).strip().lower()
+
 # Email extractor
 def extract_email(text):
     match = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
@@ -129,97 +132,73 @@ def extract_summary(text):
 
     return None
 
-# Section extractors
-def extract_section(text, section_keywords, stop_keywords=None, max_lines=30):
+
+def extract_all_sections(text, section_keywords, stop_keywords=None, max_lines=30):
     lines = text.splitlines()
+    sections = []
     section = []
     capture = False
+    current_heading = ""
+
+    def flush_section():
+        if section:
+            flat = []
+            for line in section:
+                if isinstance(line, str):
+                    flat.append(line.strip())
+                elif isinstance(line, list):
+                    flat.extend(str(item).strip() for item in line)
+                else:
+                    flat.append(str(line).strip())
+
+            sections.append({
+                "heading": current_heading,
+                "content": "\n".join(flat).strip()
+            })
+
     for line in lines:
-        line_lower = line.lower().strip()
-        if not capture and any(h in line_lower for h in section_keywords):
+        line_stripped = line.strip()
+        line_lower = line_stripped.lower()
+
+        if any(keyword in line_lower for keyword in section_keywords):
+            flush_section()
             capture = True
+            current_heading = line_stripped
+            section = []
             continue
-        if capture and stop_keywords and any(h in line_lower for h in stop_keywords):
-            break
+
+        if capture and stop_keywords and any(stop in line_lower for stop in stop_keywords):
+            flush_section()
+            capture = False
+            section = []
+            current_heading = ""
+            continue
+
         if capture:
-            section.append(line.strip())
+            section.append(line_stripped)
             if len(section) >= max_lines:
-                break
-    return "\n".join(section)
+                flush_section()
+                capture = False
+                section = []
+                current_heading = ""
+
+    if capture:
+        flush_section()
+
+    return sections
+
 
 def extract_skills_section(text):
-    return extract_section(
+    return extract_all_sections(
         text,
         section_keywords=["skills", "technical skills", "tools", "technologies"],
         stop_keywords=["experience", "education", "projects", "summary", "certification"]
     )
 
-# def extract_all_sections(text, section_keywords, stop_keywords=None, max_lines=30):
-#     lines = text.splitlines()
-#     sections = []
-#     section = []
-#     capture = False
-#     current_heading = ""
-
-#     def flush_section():
-#         if section:
-#             flat = []
-#             for line in section:
-#                 if isinstance(line, str):
-#                     flat.append(line.strip())
-#                 elif isinstance(line, list):
-#                     flat.extend(str(item).strip() for item in line)
-#                 else:
-#                     flat.append(str(line).strip())
-
-#             sections.append({
-#                 "heading": current_heading,
-#                 "content": "\n".join(flat).strip()
-#             })
-
-#     for line in lines:
-#         line_stripped = line.strip()
-#         line_lower = line_stripped.lower()
-
-#         if any(keyword in line_lower for keyword in section_keywords):
-#             flush_section()
-#             capture = True
-#             current_heading = line_stripped
-#             section = []
-#             continue
-
-#         if capture and stop_keywords and any(stop in line_lower for stop in stop_keywords):
-#             flush_section()
-#             capture = False
-#             section = []
-#             current_heading = ""
-#             continue
-
-#         if capture:
-#             section.append(line_stripped)
-#             if len(section) >= max_lines:
-#                 flush_section()
-#                 capture = False
-#                 section = []
-#                 current_heading = ""
-
-#     if capture:
-#         flush_section()
-
-#     return sections
-
-
-# def extract_skills_section(text):
-#     return extract_section(
-#         text,
-#         section_keywords=["skills", "technical skills", "tools", "technologies"],
-#         stop_keywords=["experience", "education", "projects", "summary", "certification"]
-#     )
-
 # -------------------------
 # 🧠 Semantic skill matcher
 # -------------------------
-def match_skills_from_resume(text, skills, embeddings, top_k=5, threshold=0.8):
+def match_skills_from_resume(text, skills, embeddings, top_k=15, threshold=0.50):
     text_emb = model.encode(text, convert_to_tensor=True)
     sim_scores = util.cos_sim(text_emb, embeddings)[0]
     top_indices = [i for i in sim_scores.argsort(descending=True) if sim_scores[i] > threshold][:top_k]
@@ -256,7 +235,6 @@ def extract_skills_with_keywords(text, canonical_skills):
                 "type": skill["type"]
             })
     return found
-
 # -------------------------
 # 🔀 Merge skill sets
 # -------------------------
