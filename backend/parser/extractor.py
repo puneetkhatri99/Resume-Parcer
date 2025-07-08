@@ -2,7 +2,7 @@ import re
 import pickle
 import spacy
 from sentence_transformers import SentenceTransformer, util
-from rapidfuzz import fuzz
+from urllib.parse import urlparse
 
 # Load NLP and embedding models
 nlp = spacy.load("en_core_web_sm")
@@ -17,20 +17,17 @@ hard_embeddings = skill_data["hard_embeddings"]
 soft_skills = skill_data["soft_skills"]
 soft_embeddings = skill_data["soft_embeddings"]
 
-def normalize_skill(name):
-    return re.sub(r'\d+(\.\d+)?', '', name).strip().lower()
 
-# Email extractor
+# === HELPERS ===
+
 def extract_email(text):
-    match = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-    return match[0] if match else None
+    match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
+    return match.group(0) if match else None
 
-# Phone number extractor
 def extract_phone(text):
-    match = re.findall(r"(?:\+91[-\s]?)?\(?\d{3,5}\)?[-\s]?\d{5,10}", text)
-    return match[0] if match else None
+    match = re.search(r"(?:\+91[-\s]?)?\(?\d{3,5}\)?[-\s]?\d{5,10}", text)
+    return match.group(0) if match else None
 
-# Name extractor
 def extract_name(text, email=None):
     lines = text.strip().splitlines()
     for line in lines[:5]:
@@ -47,7 +44,58 @@ def extract_name(text, email=None):
         return ' '.join(word.capitalize() for word in name_part.split())
     return None
 
-# FIXED: Improved summary extractor
+
+def extract_social_links(text):
+    # Extract all potential URLs
+    raw_urls = re.findall(r'https?://[^\s,;)\]]+', text)
+
+    # Define known social platforms (lowercased)
+    platforms = {
+        "linkedin": "LinkedIn",
+        "github": "GitHub",
+        "portfolio": "Portfolio",
+        "behance": "Behance",
+        "medium": "Medium",
+        "twitter": "Twitter",
+        "leetcode": "LeetCode",
+        "dribbble": "Dribbble",
+        "dev.to": "Dev.to"
+    }
+
+    cleaned = []
+    seen = set()
+
+    for url in raw_urls:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        for key in platforms:
+            if key in domain or key in parsed.path.lower():
+                if url not in seen:
+                    seen.add(url)
+                    cleaned.append({
+                        "platform": platforms[key],
+                        "url": url
+                    })
+
+    return cleaned
+
+def extract_section(text, start_keywords, stop_keywords=None, max_lines=40):
+    lines = text.splitlines()
+    capture = False
+    section = []
+    for line in lines:
+        line_lower = line.lower().strip()
+        if not capture and any(k in line_lower for k in start_keywords):
+            capture = True
+            continue
+        if capture and stop_keywords and any(k in line_lower for k in stop_keywords):
+            break
+        if capture:
+            section.append(line.strip())
+            if len(section) >= max_lines:
+                break
+    return "\n".join(section).strip() if section else None
+
 def extract_summary(text):
     summary_headings = [
         "summary", "professional summary", "objective", "career objective",
@@ -133,174 +181,163 @@ def extract_summary(text):
     return None
 
 
-def extract_all_sections(text, section_keywords, stop_keywords=None, max_lines=30):
+
+def extract_experience(text, max_lines=40):
+    """
+    Extracts the experience section from resume text in a robust way.
+    """
+    experience_keywords = [
+        "experience", "professional experience", "work experience", "employment",
+        "internship", "work history", "career", "job experience", "industry experience"
+    ]
+    stop_keywords = [
+        "education", "academic", "skills", "projects", "certification", "summary", "profile"
+    ]
+
     lines = text.splitlines()
-    sections = []
     section = []
     capture = False
-    current_heading = ""
-
-    def flush_section():
-        if section:
-            flat = []
-            for line in section:
-                if isinstance(line, str):
-                    flat.append(line.strip())
-                elif isinstance(line, list):
-                    flat.extend(str(item).strip() for item in line)
-                else:
-                    flat.append(str(line).strip())
-
-            sections.append({
-                "heading": current_heading,
-                "content": "\n".join(flat).strip()
-            })
+    empty_count = 0
 
     for line in lines:
-        line_stripped = line.strip()
-        line_lower = line_stripped.lower()
+        line_clean = line.strip()
+        line_lower = line_clean.lower()
+        normalized = line_lower.strip().replace(":", "")
 
-        if any(keyword in line_lower for keyword in section_keywords):
-            flush_section()
+        # Start capturing
+       
+        if not capture and any(keyword in normalized for keyword in experience_keywords):
             capture = True
-            current_heading = line_stripped
-            section = []
             continue
 
-        if capture and stop_keywords and any(stop in line_lower for stop in stop_keywords):
-            flush_section()
-            capture = False
-            section = []
-            current_heading = ""
-            continue
-
+        # Stop capturing at known boundaries
         if capture:
-            section.append(line_stripped)
-            if len(section) >= max_lines:
-                flush_section()
-                capture = False
-                section = []
-                current_heading = ""
+            if any(kw in normalized for kw in stop_keywords):
+                break
 
-    if capture:
-        flush_section()
+            # Count blank lines to decide if section has ended
+            if line_clean == "":
+                empty_count += 1
+                if empty_count >= 5:
+                    break
+                continue
+            else:
+                empty_count = 0  # reset
 
-    return sections
+            section.append(line_clean)
+
+        if capture and len(section) >= max_lines:
+            break
+
+    return "\n".join(section).strip() if section else None
 
 
-def extract_skills_section(text):
-    return extract_all_sections(
-        text,
-        section_keywords=["skills", "technical skills", "tools", "technologies"],
-        stop_keywords=["experience", "education", "projects", "summary", "certification"]
-    )
+def extract_structured_experience(text):
+    raw_exp = extract_experience(text)
+    if not raw_exp:
+        return []
 
-# -------------------------
-# 🧠 Semantic skill matcher
-# -------------------------
-def match_skills_from_resume(text, skills, embeddings, top_k=15, threshold=0.50):
+    entries = []
+    lines = raw_exp.splitlines()
+
+    # Merge lines that belong together (basic logic)
+    block = ""
+    for line in lines:
+        line = line.strip()
+        if line == "":
+            if block:
+                entries.append(block.strip())
+                block = ""
+        else:
+            block += " " + line
+
+    if block:
+        entries.append(block.strip())
+
+    parsed = []
+    for entry in entries:
+        # Try to extract: position – company – location (flexible)
+        # Example: Intern-Market Research, Mutual of Omaha, Omaha, NE (Fall Semester, 20xx)
+        match = re.match(r"(.*?)[,–-]\s*(.*?)(?:[,–-]\s*(\w+(?: \w+)*))?(?:\s*\(|$)", entry)
+
+        if match:
+            position = match.group(1).strip()
+            company = match.group(2).strip() if match.group(2) else None
+            location = match.group(3).strip() if match.group(3) else None
+
+            parsed.append({
+                "position": position,
+                "company": company,
+                "location": location
+            })
+
+    return parsed
+
+def extract_projects(text):
+    return extract_section(text, ["projects", "portfolio"],
+                           ["experience", "education", "skills", "certifications"])
+
+def extract_education(text):
+    return extract_section(text, ["education", "academic", "qualification"],
+                           ["experience", "skills", "projects", "certifications"])
+
+# === Skill Matching ===
+
+def match_skills_from_resume(text, skills, embeddings, top_k=20, threshold=0.55):
     text_emb = model.encode(text, convert_to_tensor=True)
     sim_scores = util.cos_sim(text_emb, embeddings)[0]
     top_indices = [i for i in sim_scores.argsort(descending=True) if sim_scores[i] > threshold][:top_k]
 
-    seen = set()
-    results = []
+    results = set()
     for i in top_indices:
-        skill = skills[i]
-        name_key = skill["name"].lower().strip()
-        if name_key not in seen:
-            seen.add(name_key)
-            results.append({
-                "name": skill["name"],
-                "score": round(float(sim_scores[i]), 3),
-                "type": skill["type"]
-            })
+        skill_name = skills[i]["name"].strip()
+        results.add(skill_name)
     return results
 
-# -------------------------
-# 🔍 Keyword-based matcher
-# -------------------------
+# Keyword match skills
 def extract_skills_with_keywords(text, canonical_skills):
     text_lower = text.lower()
-    found = []
-    seen = set()
+    found = set()
 
     for skill in canonical_skills:
         name = skill["name"].strip()
-        if name.lower() in text_lower and name.lower() not in seen:
-            seen.add(name.lower())
-            found.append({
-                "name": name,
-                "score": 1.0,
-                "type": skill["type"]
-            })
+        if name.lower() in text_lower:
+            found.add(name)
     return found
-# -------------------------
-# 🔀 Merge skill sets
-# -------------------------
+
+# Merge keyword + semantic sets
 def merge_skills(semantic, keyword):
-    seen = set()
-    merged = []
-    for s in keyword + semantic:  # prioritize exact matches
-        key = s["name"].lower()
-        if key not in seen:
-            seen.add(key)
-            merged.append(s)
-    return merged
+    return sorted(list(semantic | keyword))
 
+# === Final Resume Extractor ===
 
-# UPDATED: Final resume info extractor with improved skill extraction
 def extract_resume_info(text):
     email = extract_email(text)
     phone = extract_phone(text)
     name = extract_name(text, email)
     summary = extract_summary(text)
+    experience = extract_experience(text)
+    education = extract_education(text)
+    projects = extract_projects(text)
+    social_links = extract_social_links(text)
 
-    skills_text = text  # extract_skills_section(text)
-    # if not skills_text.strip():
-    #     skills_text = text  # fallback if "Skills" section not found
+    keyword_hard = extract_skills_with_keywords(text, hard_skills)
+    keyword_soft = extract_skills_with_keywords(text, soft_skills)
+    semantic_hard = match_skills_from_resume(text, hard_skills, hard_embeddings)
+    semantic_soft = match_skills_from_resume(text, soft_skills, soft_embeddings)
 
-    semantic_hard = match_skills_from_resume(skills_text, hard_skills, hard_embeddings)
-    semantic_soft = match_skills_from_resume(skills_text, soft_skills, soft_embeddings)
-    
-    # Use enhanced keyword extraction
-    keyword_hard = extract_skills_with_keywords(skills_text, hard_skills)
-    keyword_soft = extract_skills_with_keywords(skills_text, soft_skills)
-
-    merged_hard = merge_skills(semantic_hard, keyword_hard)
-    merged_soft = merge_skills(semantic_soft, keyword_soft)
+    hard = merge_skills(semantic_hard, keyword_hard)
+    soft = merge_skills(semantic_soft, keyword_soft)
 
     return {
         "name": name,
         "email": email,
         "phone": phone,
         "summary": summary,
-        "hard_skills": merged_hard,
-        "soft_skills": merged_soft,
+        "social_links": social_links,
+        "education": education,
+        "experience": experience,
+        "projects": projects,
+        "hard_skills": hard,
+        "soft_skills": soft
     }
-
-# Optional: Helper function to debug summary extraction
-def debug_summary_extraction(text):
-    """Helper function to debug why summary extraction might be failing"""
-    print("=== DEBUGGING SUMMARY EXTRACTION ===")
-    lines = text.splitlines()
-    print(f"Total lines: {len(lines)}")
-    print("First 10 lines:")
-    for i, line in enumerate(lines[:10]):
-        print(f"{i+1}: '{line.strip()}'")
-    
-    summary_headings = [
-        "summary", "professional summary", "objective", "career objective",
-        "career summary", "profile", "personal profile", "about me", "overview"
-    ]
-    
-    print("\nLooking for these headings:", summary_headings)
-    for i, line in enumerate(lines):
-        line_lower = line.strip().lower()
-        for heading in summary_headings:
-            if heading in line_lower:
-                print(f"Found potential heading on line {i+1}: '{line.strip()}'")
-    
-    result = extract_summary(text)
-    print(f"\nExtracted summary: {result}")
-    return result
