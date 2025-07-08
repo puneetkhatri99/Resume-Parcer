@@ -183,9 +183,7 @@ def extract_summary(text):
 
 
 def extract_experience(text, max_lines=40):
-    """
-    Extracts the experience section from resume text in a robust way.
-    """
+
     experience_keywords = [
         "experience", "professional experience", "work experience", "employment",
         "internship", "work history", "career", "job experience", "industry experience"
@@ -206,7 +204,7 @@ def extract_experience(text, max_lines=40):
 
         # Start capturing
        
-        if not capture and any(keyword in normalized for keyword in experience_keywords):
+        if not capture and any(line_lower.startswith(keyword) for keyword in experience_keywords):
             capture = True
             continue
 
@@ -233,45 +231,50 @@ def extract_experience(text, max_lines=40):
 
 
 def extract_structured_experience(text):
-    raw_exp = extract_experience(text)
-    if not raw_exp:
-        return []
+    
+    experience_text = extract_experience(text)
+    lines = experience_text.splitlines()
+    experiences = []
+    current_exp = {}
+    description_lines = []
 
-    entries = []
-    lines = raw_exp.splitlines()
+    # Pattern to match lines like:
+    # Web Development Intern – BWorth Technologies Pvt Ltd Sep 2024 – Nov 2024
+    position_line_pattern = re.compile(
+        r"(?P<position>.+?)\s+[-–]\s+(?P<company>.+?)\s+(?P<duration>(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*[–-]\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})",
+        re.IGNORECASE
+    )
 
-    # Merge lines that belong together (basic logic)
-    block = ""
     for line in lines:
         line = line.strip()
-        if line == "":
-            if block:
-                entries.append(block.strip())
-                block = ""
-        else:
-            block += " " + line
+        if not line:
+            continue
 
-    if block:
-        entries.append(block.strip())
-
-    parsed = []
-    for entry in entries:
-        # Try to extract: position – company – location (flexible)
-        # Example: Intern-Market Research, Mutual of Omaha, Omaha, NE (Fall Semester, 20xx)
-        match = re.match(r"(.*?)[,–-]\s*(.*?)(?:[,–-]\s*(\w+(?: \w+)*))?(?:\s*\(|$)", entry)
-
+        match = position_line_pattern.match(line)
         if match:
-            position = match.group(1).strip()
-            company = match.group(2).strip() if match.group(2) else None
-            location = match.group(3).strip() if match.group(3) else None
+            # Save previous experience
+            if current_exp:
+                current_exp["description"] = description_lines
+                experiences.append(current_exp)
+                current_exp = {}
+                description_lines = []
 
-            parsed.append({
-                "position": position,
-                "company": company,
-                "location": location
-            })
+            # Start new experience
+            current_exp = {
+                "position": match.group("position").strip(),
+                "company": match.group("company").strip(),
+                "location": "",  # You can improve this later
+                "duration": match.group("duration").strip(),
+            }
+        elif current_exp:
+            description_lines.append(line)
 
-    return parsed
+    # Save the last one
+    if current_exp:
+        current_exp["description"] = description_lines
+        experiences.append(current_exp)
+
+    return experiences if experiences else None
 
 def extract_projects(text):
     return extract_section(text, ["projects", "portfolio"],
@@ -316,7 +319,7 @@ def extract_resume_info(text):
     phone = extract_phone(text)
     name = extract_name(text, email)
     summary = extract_summary(text)
-    experience = extract_experience(text)
+    experience = extract_structured_experience(text)
     education = extract_education(text)
     projects = extract_projects(text)
     social_links = extract_social_links(text)
