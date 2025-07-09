@@ -1,9 +1,5 @@
+not working on different types of resume 
 
-remove redundant skills
-understand the code
+LLM implimentation is pending
 
-
-impliment OCR (done)
-test your model
-improve pdf plumber
-add projects , experince , education
+fine tune the sementic search 

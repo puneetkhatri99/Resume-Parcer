@@ -2,8 +2,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 from parser.file_reader import read_file
-from parser.extractor import extract_resume_info, extract_skills_section
+from parser.extractor import extract_resume_info
 from tqdm import tqdm 
+import re
 
 
 # Initialize Flask app
@@ -40,6 +41,14 @@ def upload_resume():
     print("📄 Reading file...")
     # Extract raw text
     text = read_file(filepath)
+
+    def normalize_text(text):
+        text = re.sub(r"\n{2,}", "\n", text)  # collapse multiple newlines
+        text = re.sub(r" {2,}", " ", text)    # collapse multiple spaces
+        return text.strip()
+
+    text = normalize_text(text)
+
     if not text or text.strip() == "":
         return jsonify({"error": "Failed to extract text from the resume"}), 500
 
@@ -50,7 +59,7 @@ def upload_resume():
             pass
         result = extract_resume_info(text)
         print("✅ Done parsing!")
-        # print("📊 sections:", text)
+        print("📊 sections:", result)
         return jsonify(result), 200
     except Exception as e:
         print(f"❌ Error during extraction: {e}")
