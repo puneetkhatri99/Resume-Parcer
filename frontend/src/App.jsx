@@ -1,10 +1,17 @@
+import JobDescriptionAI from './JobDescriptionAI.jsx';
 import ResumeUploader from './ResumeUploader.jsx';
 
 function App() {
 
 
   return (
-    <ResumeUploader />
+    <div>
+       <ResumeUploader />
+       <div className="min-h-screen bg-gray-100">
+      <JobDescriptionAI />
+       </div>
+    </div>
+   
   )
 }
 

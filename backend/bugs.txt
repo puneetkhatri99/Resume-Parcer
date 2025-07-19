@@ -1,5 +1,0 @@
-not working on different types of resume 
-
-LLM implimentation is pending
-
-fine tune the sementic search 
